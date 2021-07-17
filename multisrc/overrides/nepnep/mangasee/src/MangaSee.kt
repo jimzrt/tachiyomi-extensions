@@ -9,7 +9,7 @@ class MangaSee : NepNep("MangaSee", "https://mangasee123.com", "en") {
 
     override val id: Long = 9
 
-    private val rateLimitInterceptor = RateLimitInterceptor(1, 2)
+    private val rateLimitInterceptor = RateLimitInterceptor(5, 1)
 
     override val client: OkHttpClient = network.cloudflareClient.newBuilder()
         .addNetworkInterceptor(rateLimitInterceptor)
