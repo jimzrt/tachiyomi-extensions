@@ -23,7 +23,6 @@ class WPMangaReaderGenerator : ThemeSourceGenerator {
         SingleLang("Mangasusu", "https://mangasusu.co.in", "id", isNsfw = true),
         SingleLang("TurkToon", "https://turktoon.com", "tr"),
         SingleLang("Gecenin Lordu", "https://geceninlordu.com/", "tr", overrideVersionCode = 1),
-        SingleLang("Flame Scans", "https://flamescans.org", "en", overrideVersionCode = 7),
         SingleLang("A Pair of 2+", "https://pairof2.com", "en", className = "APairOf2"),
         SingleLang("PMScans", "https://reader.pmscans.com", "en"),
         SingleLang("Skull Scans", "https://www.skullscans.com", "en"),
@@ -34,7 +33,8 @@ class WPMangaReaderGenerator : ThemeSourceGenerator {
         SingleLang("DragonTranslation", "https://dragontranslation.com", "es", isNsfw = true, overrideVersionCode = 1),
         SingleLang("Patatescans", "https://patatescans.com", "fr", isNsfw = true, overrideVersionCode = 1),
         SingleLang("Fusion Scanlation", "https://fusionscanlation.com", "es", className = "FusionScanlation", overrideVersionCode = 1),
-        SingleLang("Ace Scans", "https://acescans.xyz", "en"),
+        SingleLang("Ace Scans", "https://acescans.xyz", "en", isNsfw = true, overrideVersionCode = 1),
+        SingleLang("Silence Scan", "https://silencescan.com.br", "pt-BR", isNsfw = true, overrideVersionCode = 5),
     )
 
     companion object {

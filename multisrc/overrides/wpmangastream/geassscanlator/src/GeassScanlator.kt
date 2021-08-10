@@ -2,7 +2,10 @@ package eu.kanade.tachiyomi.extension.pt.geassscanlator
 
 import eu.kanade.tachiyomi.lib.ratelimit.RateLimitInterceptor
 import eu.kanade.tachiyomi.multisrc.wpmangastream.WPMangaStream
+import eu.kanade.tachiyomi.source.model.SChapter
+import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.OkHttpClient
+import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -15,10 +18,17 @@ class GeassScanlator : WPMangaStream(
 ) {
 
     override val client: OkHttpClient = super.client.newBuilder()
-        .addInterceptor(RateLimitInterceptor(1, 1, TimeUnit.SECONDS))
+        .addInterceptor(RateLimitInterceptor(1, 2, TimeUnit.SECONDS))
         .build()
 
     override val altName: String = "Nome alternativo: "
+
+    override fun chapterListParse(response: Response): List<SChapter> {
+        val document = response.asJsoup()
+
+        return document.select(chapterListSelector())
+            .map { chapterFromElement(it) }
+    }
 
     // [...document.querySelectorAll('ul.genrez li')]
     //     .map(x => `Genre("${x.querySelector("label").innerHTML}", "${x.querySelector("input").value}")`)

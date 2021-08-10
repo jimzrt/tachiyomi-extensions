@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.extension.all.mangadex
 import android.app.Application
 import android.content.SharedPreferences
 import android.util.Log
+import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.extension.all.mangadex.dto.AggregateDto
@@ -107,11 +108,13 @@ abstract class MangaDex(override val lang: String, val dexLang: String) :
         val mangaListDto = helper.json.decodeFromString<MangaListDto>(response.body!!.string())
         val hasMoreResults = mangaListDto.limit + mangaListDto.offset < mangaListDto.total
 
+        val coverSuffix = preferences.getString(MDConstants.getCoverQualityPreferenceKey(dexLang), "")
+
         val mangaList = mangaListDto.results.map { mangaDto ->
             val fileName = mangaDto.relationships.firstOrNull { relationshipDto ->
                 relationshipDto.type.equals(MDConstants.coverArt, true)
             }?.attributes?.fileName
-            helper.createBasicManga(mangaDto, fileName)
+            helper.createBasicManga(mangaDto, fileName, coverSuffix)
         }
 
         return MangasPage(mangaList, hasMoreResults)
@@ -127,6 +130,21 @@ abstract class MangaDex(override val lang: String, val dexLang: String) :
 
         val mangaUrl = MDConstants.apiMangaUrl.toHttpUrlOrNull()!!.newBuilder().apply {
             addQueryParameter("includes[]", MDConstants.coverArt)
+            addQueryParameter("limit", mangaIds.size.toString())
+
+            if (preferences.getBoolean(MDConstants.getContentRatingSafePrefKey(dexLang), true)) {
+                addQueryParameter("contentRating[]", "safe")
+            }
+            if (preferences.getBoolean(MDConstants.getContentRatingSuggestivePrefKey(dexLang), true)) {
+                addQueryParameter("contentRating[]", "suggestive")
+            }
+            if (preferences.getBoolean(MDConstants.getContentRatingEroticaPrefKey(dexLang), false)) {
+                addQueryParameter("contentRating[]", "erotica")
+            }
+            if (preferences.getBoolean(MDConstants.getContentRatingPornographicPrefKey(dexLang), false)) {
+                addQueryParameter("contentRating[]", "pornographic")
+            }
+
             mangaIds.forEach { id ->
                 addQueryParameter("ids[]", id)
             }
@@ -135,11 +153,15 @@ abstract class MangaDex(override val lang: String, val dexLang: String) :
         val mangaResponse = client.newCall(GET(mangaUrl, headers, CacheControl.FORCE_NETWORK)).execute()
         val mangaListDto = helper.json.decodeFromString<MangaListDto>(mangaResponse.body!!.string())
 
-        val mangaList = mangaListDto.results.map { mangaDto ->
+        val mangaDtoMap = mangaListDto.results.associateBy({ it.data.id }, { it })
+
+        val coverSuffix = preferences.getString(MDConstants.getCoverQualityPreferenceKey(dexLang), "")
+
+        val mangaList = mangaIds.mapNotNull { mangaDtoMap[it] }.map { mangaDto ->
             val fileName = mangaDto.relationships.firstOrNull { relationshipDto ->
                 relationshipDto.type.equals(MDConstants.coverArt, true)
             }?.attributes?.fileName
-            helper.createBasicManga(mangaDto, fileName)
+            helper.createBasicManga(mangaDto, fileName, coverSuffix)
         }
 
         return MangasPage(mangaList, hasMoreResults)
@@ -156,12 +178,35 @@ abstract class MangaDex(override val lang: String, val dexLang: String) :
 
     // SEARCH section
 
+    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
+        if (query.startsWith(MDConstants.prefixChSearch)) {
+            return getMangaIdFromChapterId(query.removePrefix(MDConstants.prefixChSearch)).flatMap { manga_id ->
+                super.fetchSearchManga(page, MDConstants.prefixIdSearch + manga_id, filters)
+            }
+        }
+        return super.fetchSearchManga(page, query, filters)
+    }
+
+    private fun getMangaIdFromChapterId(id: String): Observable<String> {
+        return client.newCall(GET("${MDConstants.apiChapterUrl}/$id", headers))
+            .asObservableSuccess()
+            .map { response ->
+                if (response.isSuccessful.not()) {
+                    throw Exception("Unable to process Chapter request. HTTP code: ${response.code}")
+                }
+
+                helper.json.decodeFromString<ChapterDto>(response.body!!.string()).relationships
+                    .find {
+                        it.type == MDConstants.manga
+                    }!!.id
+            }
+    }
+
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         if (query.startsWith(MDConstants.prefixIdSearch)) {
             val url = MDConstants.apiMangaUrl.toHttpUrlOrNull()!!.newBuilder().apply {
                 addQueryParameter("ids[]", query.removePrefix(MDConstants.prefixIdSearch))
                 addQueryParameter("includes[]", MDConstants.coverArt)
-
                 addQueryParameter("contentRating[]", "safe")
                 addQueryParameter("contentRating[]", "suggestive")
                 addQueryParameter("contentRating[]", "erotica")
@@ -224,7 +269,9 @@ abstract class MangaDex(override val lang: String, val dexLang: String) :
     override fun mangaDetailsParse(response: Response): SManga {
         val manga = helper.json.decodeFromString<MangaDto>(response.body!!.string())
         val shortLang = lang.substringBefore("-")
-        return helper.createManga(manga, fetchSimpleChapterList(manga, shortLang), shortLang)
+
+        val coverSuffix = preferences.getString(MDConstants.getCoverQualityPreferenceKey(dexLang), "")
+        return helper.createManga(manga, fetchSimpleChapterList(manga, shortLang), shortLang, coverSuffix)
     }
 
     /**
@@ -364,6 +411,22 @@ abstract class MangaDex(override val lang: String, val dexLang: String) :
     override fun imageUrlParse(response: Response): String = ""
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        val coverQualityPref = ListPreference(screen.context).apply {
+            key = MDConstants.getCoverQualityPreferenceKey(dexLang)
+            title = "Manga Cover Quality"
+            entries = MDConstants.getCoverQualityPreferenceEntries()
+            entryValues = MDConstants.getCoverQualityPreferenceEntryValues()
+            setDefaultValue(MDConstants.getCoverQualityPreferenceDefaultValue())
+            summary = "%s"
+
+            setOnPreferenceChangeListener { _, newValue ->
+                val selected = newValue as String
+                val index = findIndexOfValue(selected)
+                val entry = entryValues[index] as String
+                preferences.edit().putString(MDConstants.getCoverQualityPreferenceKey(dexLang), entry).commit()
+            }
+        }
+        
         val dataSaverPref = SwitchPreferenceCompat(screen.context).apply {
             key = MDConstants.getDataSaverPreferenceKey(dexLang)
             title = "Data saver"
@@ -451,6 +514,7 @@ abstract class MangaDex(override val lang: String, val dexLang: String) :
             }
         }
 
+        screen.addPreference(coverQualityPref)
         screen.addPreference(dataSaverPref)
         screen.addPreference(standardHttpsPortPref)
         screen.addPreference(contentRatingSafePref)
